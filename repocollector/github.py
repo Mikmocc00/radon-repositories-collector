@@ -2,7 +2,6 @@ import re
 import requests
 from datetime import datetime
 
-# Query ottimizzata: cerca la parola chiave e il linguaggio HCL
 QUERY_TEMPLATE = """{ 
   search(query: "is:public stars:>=MIN_STARS mirror:false archived:false created:SINCE..UNTIL pushed:>=PUSHED_AFTER LANGUAGE:LANGUAGE", type: REPOSITORY, first: 50 AFTER) { 
     repositoryCount 
@@ -74,7 +73,6 @@ class GithubRepositoriesCollector:
             if not node:
                 continue
 
-            # Filtri di base (escludiamo fork e archiviati per avere dati puliti)
             if node.get('isFork') or node.get('isArchived') or node.get('isDisabled'):
                 continue
 
@@ -96,7 +94,6 @@ class GithubRepositoriesCollector:
             filenames = [e.get('name').lower() for e in entries]
             dirs = [e.get('name') for e in entries if e.get('type') == 'tree']
 
-            # Se il linguaggio è HCL o il nome/descrizione contiene "terraform", lo prendiamo
             name = node.get('name', '').lower()
             description = (node.get('description') or '').lower()
 
@@ -105,7 +102,18 @@ class GithubRepositoriesCollector:
                            ('terraform' in description) or \
                            any(f.endswith('.tf') for f in filenames)
 
-            if not is_terraform:
+            k8s_files = ['deployment', 'service', 'ingress', 'kustomization', 'chart']
+
+            is_kubernetes = (
+                    ('kubernetes' in name or 'k8s' in name) or
+                    ('kubernetes' in description or 'k8s' in description) or
+                    (
+                            any(f.endswith(('.yaml', '.yml')) for f in filenames) and
+                            any(any(k in f for k in k8s_files) for f in filenames)
+                    )
+            )
+
+            if not (is_terraform or is_kubernetes):
                 continue
 
             owner = node.get('owner', {}).get('login', '')
@@ -126,7 +134,8 @@ class GithubRepositoriesCollector:
                 created_at=str(node.get('createdAt')),
                 pushed_at=str(node.get('pushedAt')),
                 dirs=dirs,
-                is_terraform=True
+                is_terraform=is_terraform,
+                is_kubernetes=is_kubernetes
             )
 
     def collect_repositories(self, since, until, pushed_after, min_stars=0, min_releases=0,
@@ -134,10 +143,10 @@ class GithubRepositoriesCollector:
 
         query_base = QUERY_TEMPLATE
 
-        # Mapping speciale per Terraform
         if primary_language and primary_language.lower() == 'terraform':
-            # Cerchiamo sia per linguaggio HCL che per keyword terraform
             lang_filter = "terraform language:hcl"
+        elif primary_language and primary_language.lower() == 'kubernetes':
+            lang_filter = "kubernetes language:yaml"
         elif primary_language:
             lang_filter = f"language:{primary_language}"
         else:

@@ -13,7 +13,7 @@ QUERY_TEMPLATE = """{
           defaultBranchRef { name } 
           owner { login } 
           name 
-          url               
+          url                
           description 
           primaryLanguage { name } 
           stargazers { totalCount } 
@@ -113,7 +113,14 @@ class GithubRepositoriesCollector:
                     )
             )
 
-            if not (is_terraform or is_kubernetes):
+            # Controllo per Docker
+            is_docker = (primary_language == 'dockerfile') or \
+                        ('docker' in name) or \
+                        ('docker' in description) or \
+                        any('dockerfile' in f for f in filenames)
+
+            # Scarta se non è nessuno dei tre
+            if not (is_terraform or is_kubernetes or is_docker):
                 continue
 
             owner = node.get('owner', {}).get('login', '')
@@ -135,7 +142,8 @@ class GithubRepositoriesCollector:
                 pushed_at=str(node.get('pushedAt')),
                 dirs=dirs,
                 is_terraform=is_terraform,
-                is_kubernetes=is_kubernetes
+                is_kubernetes=is_kubernetes,
+                is_docker=is_docker
             )
 
     def collect_repositories(self, since, until, pushed_after, min_stars=0, min_releases=0,
@@ -147,6 +155,8 @@ class GithubRepositoriesCollector:
             lang_filter = "terraform language:hcl"
         elif primary_language and primary_language.lower() == 'kubernetes':
             lang_filter = "kubernetes language:yaml"
+        elif primary_language and primary_language.lower() == 'docker':
+            lang_filter = "docker language:Dockerfile"
         elif primary_language:
             lang_filter = f"language:{primary_language}"
         else:

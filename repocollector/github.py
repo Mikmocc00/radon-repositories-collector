@@ -122,9 +122,11 @@ class GithubRepositoriesCollector:
             )
 
             is_tosca = (
-                    any(f.endswith(('.yaml', '.yml')) for f in filenames) and
                     any('tosca' in f for f in filenames) or
-                    any('topology' in f or 'node_types' in f for f in filenames)
+                    any(f.endswith(('.yaml', '.yml')) for f in filenames) and
+                    any('topology' in f or 'node_types' in f for f in filenames) or
+                    'tosca' in name or
+                    'tosca' in description
             )
 
             if not (is_terraform or is_kubernetes or is_docker or is_ansible or is_tosca):
@@ -166,6 +168,10 @@ class GithubRepositoriesCollector:
             lang_filter = "kubernetes language:yaml"
         elif primary_language and primary_language.lower() == 'docker':
             lang_filter = "docker language:Dockerfile"
+        elif primary_language and primary_language.lower() == 'ansible':
+            lang_filter = "ansible"
+        elif primary_language and primary_language.lower() == 'tosca':
+            lang_filter = "tosca"
         elif primary_language:
             lang_filter = f"language:{primary_language}"
         else:

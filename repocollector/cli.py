@@ -42,7 +42,7 @@ def main():
     print(f"Inizio ricerca per: {args.primary_language}...")
     repositories = []
 
-    # Utilizziamo una data di push molto vecchia per non escludere nulla nei test
+    
     date_push = datetime(2010, 1, 1)
 
     for repo in github.collect_repositories(
@@ -57,7 +57,6 @@ def main():
         print("ATTENZIONE: Nessun repository trovato con questi criteri.")
         return
 
-    # Salvataggio
     json_path = os.path.join(args.dest, 'repositories.json')
     with open(json_path, "w") as f:
         json.dump(repositories, f, indent=4)

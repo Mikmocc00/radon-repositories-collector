@@ -84,11 +84,11 @@ class GithubRepositoriesCollector:
             if issues < min_issues or releases < min_releases or watchers < min_watchers:
                 continue
 
-            # Identificazione Linguaggio
+          
             primary_lang_node = node.get('primaryLanguage')
             primary_language = primary_lang_node['name'].lower() if primary_lang_node else ''
 
-            # Controllo file (se presenti in root)
+            
             obj = node.get('object')
             entries = obj.get('entries', []) if obj else []
             filenames = [e.get('name').lower() for e in entries]
@@ -113,13 +113,13 @@ class GithubRepositoriesCollector:
                     )
             )
 
-            # Controllo per Docker
+            
             is_docker = (primary_language == 'dockerfile') or \
                         ('docker' in name) or \
                         ('docker' in description) or \
                         any('dockerfile' in f for f in filenames)
 
-            # Scarta se non è nessuno dei tre
+            
             if not (is_terraform or is_kubernetes or is_docker):
                 continue
 
@@ -172,7 +172,7 @@ class GithubRepositoriesCollector:
         end_cursor = None
 
         while has_next_page:
-            # Inseriamo il cursore per la paginazione
+            
             after_val = f', after: "{end_cursor}"' if end_cursor else ""
             tmp_query = re.sub('AFTER', after_val, query_base)
 
@@ -193,11 +193,11 @@ class GithubRepositoriesCollector:
             if not data:
                 break
 
-            # Gestione Quota
+            
             self._quota = int(result['data']['rateLimit']['remaining'])
             self._quota_reset_at = result['data']['rateLimit']['resetAt']
 
-            # Paginazione
+            
             page_info = data.get('pageInfo', {})
             has_next_page = page_info.get('hasNextPage')
             end_cursor = page_info.get('endCursor')

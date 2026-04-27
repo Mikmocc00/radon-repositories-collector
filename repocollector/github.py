@@ -72,6 +72,9 @@ class GithubRepositoriesCollector:
             if not node:
                 continue
 
+            if not node.get('defaultBranchRef'):
+                continue
+
             if node.get('isFork') or node.get('isArchived') or node.get('isDisabled'):
                 continue
 

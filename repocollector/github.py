@@ -138,7 +138,7 @@ class GithubRepositoriesCollector:
 
             yield dict(
                 id=node.get('databaseId'),
-                default_branch=node.get('defaultBranchRef', {}).get('name'),
+                default_branch=node.get('defaultBranchRef', {}).get('name') if node.get('defaultBranchRef') else None,
                 owner=owner,
                 name=node.get('name'),
                 full_name=f'{owner}/{node.get("name")}',

@@ -1,24 +1,52 @@
-"""
-A module to mine Github to extract relevant repositories based on given criteria
-"""
-
 import re
 import requests
 from datetime import datetime
 
-QUERY_TEMPLATE = """{ search(query: "is:public stars:>=MIN_STARS mirror:false archived:false created:SINCE..UNTIL 
-pushed:>=PUSHED_AFTER LANGUAGE:LANGUAGE", type: REPOSITORY, first: 50 AFTER) { repositoryCount pageInfo { endCursor startCursor 
-hasNextPage } edges { node { ... on Repository { databaseId defaultBranchRef { name } owner { login } name url description 
-primaryLanguage { name } stargazers { totalCount } watchers { totalCount } releases { totalCount } issues { 
-totalCount } createdAt pushedAt updatedAt hasIssuesEnabled isArchived isDisabled isMirror isFork object(expression: 
-"master:") { ... on Tree { entries { name type } } } } } } } 
-
-    rateLimit {
-        limit
-        cost
-        remaining
-        resetAt
-    }
+QUERY_TEMPLATE = """{ 
+  search(query: "is:public stars:>=MIN_STARS mirror:false archived:false created:SINCE..UNTIL pushed:>=PUSHED_AFTER LANGUAGE:LANGUAGE", type: REPOSITORY, first: 50 AFTER) { 
+    repositoryCount 
+    pageInfo { endCursor startCursor hasNextPage } 
+    edges { 
+      node { 
+        ... on Repository { 
+          databaseId 
+          defaultBranchRef { name } 
+          owner { login } 
+          name 
+          url                
+          description 
+          primaryLanguage { name } 
+          stargazers { totalCount } 
+          watchers { totalCount } 
+          releases { totalCount } 
+          issues { totalCount } 
+          createdAt 
+          pushedAt 
+          updatedAt 
+          hasIssuesEnabled 
+          isArchived 
+          isDisabled 
+          isMirror 
+          isFork 
+          # Estraiamo i file della root per un controllo rapido
+          object(expression: "HEAD:") { 
+            ... on Tree { 
+              entries { 
+                name 
+                type 
+              } 
+            } 
+          } 
+        } 
+      } 
+    } 
+  } 
+  rateLimit {
+    limit
+    cost
+    remaining
+    resetAt
+  }
 }
 """
 
@@ -26,12 +54,6 @@ totalCount } createdAt pushedAt updatedAt hasIssuesEnabled isArchived isDisabled
 class GithubRepositoriesCollector:
 
     def __init__(self, access_token):
-        """
-        Crawl GitHub to extract repositories
-
-        :param access_token: the token to query GraphQL (https://help.github.com/en/github/authenticating-to-github/creating-a-personal-access-token-for-the-command-line)
-        """
-
         self._token = access_token
         self._quota = 0
         self._quota_reset_at = None
@@ -45,62 +67,77 @@ class GithubRepositoriesCollector:
         return self._quota_reset_at
 
     @staticmethod
-    def filter_repositories(edges,
-                            min_issues: int = 0,
-                            min_releases: int = 0,
-                            min_watchers: int = 0):
-
-        for node in edges:
-
-            node = node.get('node')
-
+    def filter_repositories(edges, min_issues: int = 0, min_releases: int = 0, min_watchers: int = 0):
+        for edge in edges:
+            node = edge.get('node')
             if not node:
                 continue
 
-            has_issues_enabled = node.get('hasIssuesEnabled', True)
+            if node.get('isFork') or node.get('isArchived') or node.get('isDisabled'):
+                continue
+
             issues = node['issues']['totalCount'] if node['issues'] else 0
             releases = node['releases']['totalCount'] if node['releases'] else 0
             stars = node['stargazers']['totalCount'] if node['stargazers'] else 0
             watchers = node['watchers']['totalCount'] if node['watchers'] else 0
-            is_disabled = node.get('isDisabled', False)
-            is_fork = node.get('isFork', False)
-            is_locked = node.get('isLocked', False)
-            is_template = node.get('isTemplate', False)
-            primary_language = node['primaryLanguage']['name'].lower() if node['primaryLanguage'] else ''
 
-            if min_issues and not has_issues_enabled:
+            if issues < min_issues or releases < min_releases or watchers < min_watchers:
                 continue
 
-            if issues < min_issues:
-                continue
+            # Identificazione Linguaggio
+            primary_lang_node = node.get('primaryLanguage')
+            primary_language = primary_lang_node['name'].lower() if primary_lang_node else ''
 
-            if releases < min_releases:
-                continue
+            # Controllo file (se presenti in root)
+            obj = node.get('object')
+            entries = obj.get('entries', []) if obj else []
+            filenames = [e.get('name').lower() for e in entries]
+            dirs = [e.get('name') for e in entries if e.get('type') == 'tree']
 
-            if watchers < min_watchers:
-                continue
+            name = node.get('name', '').lower()
+            description = (node.get('description') or '').lower()
 
-            if is_disabled or is_locked or is_template:
-                continue
+            is_terraform = (primary_language == 'hcl') or \
+                           ('terraform' in name) or \
+                           ('terraform' in description) or \
+                           any(f.endswith('.tf') for f in filenames)
 
-            if is_fork:
-                continue
+            k8s_files = ['deployment', 'service', 'ingress', 'kustomization', 'chart']
 
-            object = node.get('object')
-            if not object:
-                continue
+            is_kubernetes = (
+                    ('kubernetes' in name or 'k8s' in name) or
+                    ('kubernetes' in description or 'k8s' in description) or
+                    (
+                            any(f.endswith(('.yaml', '.yml')) for f in filenames) and
+                            any(any(k in f for k in k8s_files) for f in filenames)
+                    )
+            )
 
-            dirs = [entry.get('name') for entry in object.get('entries', []) if entry.get('type') == 'tree']
+            is_docker = (primary_language == 'dockerfile') or \
+                        ('docker' in name) or \
+                        ('docker' in description) or \
+                        any('dockerfile' in f for f in filenames)
+
+            is_ansible = (primary_language == 'ansible') or \
+                         ('ansible' in name) or \
+                         ('ansible' in description)
+
+            is_tosca = (primary_language == 'tosca') or \
+                       ('tosca' in name) or \
+                       ('tosca' in description) or \
+                       any(f.endswith(('.tosca', '.tosca.yaml', '.tosca.yml')) for f in filenames)
+
+            if not (is_terraform or is_kubernetes or is_docker or is_ansible or is_tosca):
+                continue
 
             owner = node.get('owner', {}).get('login', '')
-            name = node.get('name', '')
 
             yield dict(
                 id=node.get('databaseId'),
                 default_branch=node.get('defaultBranchRef', {}).get('name'),
                 owner=owner,
-                name=name,
-                full_name=f'{owner}/{name}',
+                name=node.get('name'),
+                full_name=f'{owner}/{node.get("name")}',
                 url=node.get('url'),
                 description=node['description'] if node['description'] else '',
                 issues=issues,
@@ -110,75 +147,66 @@ class GithubRepositoriesCollector:
                 primary_language=primary_language,
                 created_at=str(node.get('createdAt')),
                 pushed_at=str(node.get('pushedAt')),
-                dirs=dirs
+                dirs=dirs,
+                is_terraform=is_terraform,
+                is_kubernetes=is_kubernetes,
+                is_docker=is_docker,
+                is_ansible=is_ansible,
+                is_tosca=is_tosca
             )
 
-    def collect_repositories(self,
-                             since: datetime,
-                             until: datetime,
-                             pushed_after: datetime,
-                             min_stars: int = 0,
-                             min_releases: int = 0,
-                             min_watchers: int = 0,
-                             min_issues: int = 0,
-                             primary_language: str = None):
-        """
-        :param since: search for repositories created from since
-        :param until: search for repositories created up to until
-        :param pushed_after: datetime to filter out repositories. Repositories older than pushed_after are ignored.
-        :param min_stars: the minimum number of stars the repositories must have
-        :param min_releases: the minimum number of releases the repositories must have
-        :param min_watchers: the minimum number of watchers the repositories must have
-        :param min_issues: the minimum number of issues the repositories must have
-        :param primary_language: get repositories written in this language
+    def collect_repositories(self, since, until, pushed_after, min_stars=0, min_releases=0,
+                             min_watchers=0, min_issues=0, primary_language=None):
 
-        :return: a generator of dictionary objects
-        """
+        query_base = QUERY_TEMPLATE
 
-        query = re.sub('MIN_STARS', str(min_stars), QUERY_TEMPLATE)
-        query = re.sub('SINCE', since.strftime('%Y-%m-%dT%H:%M:%SZ'), query)
-        query = re.sub('UNTIL', until.strftime('%Y-%m-%dT%H:%M:%SZ'), query)
-        query = re.sub('PUSHED_AFTER', pushed_after.strftime('%Y-%m-%dT%H:%M:%SZ'), query)
-
-        if primary_language:
-            query = re.sub('LANGUAGE:LANGUAGE', f'language:{primary_language}', query)
+        if primary_language and primary_language.lower() == 'terraform':
+            lang_filter = "terraform language:hcl"
+        elif primary_language and primary_language.lower() == 'kubernetes':
+            lang_filter = "kubernetes language:yaml"
+        elif primary_language and primary_language.lower() == 'docker':
+            lang_filter = "docker language:Dockerfile"
+        elif primary_language:
+            lang_filter = f"language:{primary_language}"
         else:
-            query = re.sub('LANGUAGE:LANGUAGE', '', query)
+            lang_filter = ""
+
+        query_base = re.sub('MIN_STARS', str(min_stars), query_base)
+        query_base = re.sub('SINCE', since.strftime('%Y-%m-%dT%H:%M:%SZ'), query_base)
+        query_base = re.sub('UNTIL', until.strftime('%Y-%m-%dT%H:%M:%SZ'), query_base)
+        query_base = re.sub('PUSHED_AFTER', pushed_after.strftime('%Y-%m-%dT%H:%M:%SZ'), query_base)
+        query_base = re.sub('LANGUAGE:LANGUAGE', lang_filter, query_base)
 
         has_next_page = True
         end_cursor = None
 
         while has_next_page:
+            after_val = f', after: "{end_cursor}"' if end_cursor else ""
+            tmp_query = re.sub('AFTER', after_val, query_base)
 
-            tmp_query = re.sub('AFTER', '', query) if not end_cursor else re.sub('AFTER',
-                                                                                 f', after: "{end_cursor}"',
-                                                                                 query)
-
-            response = requests.post('https://api.github.com/graphql', json={'query': tmp_query},
+            response = requests.post('https://api.github.com/graphql',
+                                     json={'query': tmp_query},
                                      headers={'Authorization': f'token {self._token}'})
 
             if response.status_code != 200:
-                print("Query failed to run and returned status code {}: {}".format(response.status_code, tmp_query))
+                print(f"Errore API: {response.status_code}")
                 break
 
-            query_result = response.json()
-
-            if not query_result.get('data'):
+            result = response.json()
+            if 'errors' in result:
+                print(f"Errore GraphQL: {result['errors']}")
                 break
 
-            if not query_result['data'].get('search'):
+            data = result.get('data', {}).get('search', {})
+            if not data:
                 break
 
-            self._quota = int(query_result['data']['rateLimit']['remaining'])
-            self._quota_reset_at = query_result['data']['rateLimit']['resetAt']
+            self._quota = int(result['data']['rateLimit']['remaining'])
+            self._quota_reset_at = result['data']['rateLimit']['resetAt']
 
-            has_next_page = bool(query_result['data']['search']['pageInfo'].get('hasNextPage'))
-            end_cursor = str(query_result['data']['search']['pageInfo'].get('endCursor'))
+            page_info = data.get('pageInfo', {})
+            has_next_page = page_info.get('hasNextPage')
+            end_cursor = page_info.get('endCursor')
 
-            edges = query_result['data']['search'].get('edges', [])
-
-            for repo in self.filter_repositories(edges,
-                                                 min_issues=min_issues,
-                                                 min_releases=min_releases,
-                                                 min_watchers=min_watchers):
-                yield repo
+            yield from self.filter_repositories(data.get('edges', []),
+                                                min_issues, min_releases, min_watchers)

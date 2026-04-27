@@ -84,11 +84,9 @@ class GithubRepositoriesCollector:
             if issues < min_issues or releases < min_releases or watchers < min_watchers:
                 continue
 
-            # Identificazione Linguaggio
             primary_lang_node = node.get('primaryLanguage')
             primary_language = primary_lang_node['name'].lower() if primary_lang_node else ''
 
-            # Controllo file (se presenti in root)
             obj = node.get('object')
             entries = obj.get('entries', []) if obj else []
             filenames = [e.get('name').lower() for e in entries]
@@ -186,7 +184,7 @@ class GithubRepositoriesCollector:
 
             response = requests.post('https://api.github.com/graphql',
                                      json={'query': tmp_query},
-                                     headers={'Authorization': f'token {self._token}'})
+                                     headers={'Authorization': f'Bearer {self._token}'})
 
             if response.status_code != 200:
                 print(f"Errore API: {response.status_code}")

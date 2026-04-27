@@ -1,6 +1,5 @@
 import re
 import requests
-from datetime import datetime
 
 QUERY_TEMPLATE = """{ 
   search(query: "is:public stars:>=MIN_STARS mirror:false archived:false created:SINCE..UNTIL pushed:>=PUSHED_AFTER LANGUAGE:LANGUAGE", type: REPOSITORY, first: 50 AFTER) { 
@@ -116,14 +115,17 @@ class GithubRepositoriesCollector:
                         ('docker' in description) or \
                         any('dockerfile' in f for f in filenames)
 
-            is_ansible = (primary_language == 'ansible') or \
-                         ('ansible' in name) or \
-                         ('ansible' in description)
+            is_ansible = (
+                    any(f in filenames for f in ['playbook.yml', 'site.yml', 'main.yml']) or
+                    any('roles' == d.lower() for d in dirs) or
+                    any('ansible' in f for f in filenames)
+            )
 
-            is_tosca = (primary_language == 'tosca') or \
-                       ('tosca' in name) or \
-                       ('tosca' in description) or \
-                       any(f.endswith(('.tosca', '.tosca.yaml', '.tosca.yml')) for f in filenames)
+            is_tosca = (
+                    any(f.endswith(('.yaml', '.yml')) for f in filenames) and
+                    any('tosca' in f for f in filenames) or
+                    any('topology' in f or 'node_types' in f for f in filenames)
+            )
 
             if not (is_terraform or is_kubernetes or is_docker or is_ansible or is_tosca):
                 continue

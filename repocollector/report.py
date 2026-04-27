@@ -9,7 +9,6 @@ def create_report(repositories: list) -> str:
     now = datetime.datetime.now()
     gen_date = now.strftime('%Y-%m-%d')
 
-    # Calcolo medie in sicurezza
     def get_avg(key):
         return int(statistics.mean([r[key] for r in repositories])) if repositories else 0
 

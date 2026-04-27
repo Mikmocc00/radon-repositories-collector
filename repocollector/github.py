@@ -121,12 +121,14 @@ class GithubRepositoriesCollector:
                     any('ansible' in f for f in filenames)
             )
 
+            tosca_pattern = re.compile(r'\btosca\b')
+
             is_tosca = (
-                    any('tosca' in f for f in filenames) or
+                    any(tosca_pattern.search(f) for f in filenames) or
                     any(f.endswith(('.yaml', '.yml')) for f in filenames) and
                     any('topology' in f or 'node_types' in f for f in filenames) or
-                    'tosca' in name or
-                    'tosca' in description
+                    tosca_pattern.search(name) is not None or
+                    tosca_pattern.search(description) is not None
             )
 
             if not (is_terraform or is_kubernetes or is_docker or is_ansible or is_tosca):
